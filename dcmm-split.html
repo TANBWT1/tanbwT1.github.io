@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF拆分工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        
+        .upload-area {
+            border: 2px dashed #3498db;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .upload-area:hover {
+            background-color: #f0f8ff;
+            border-color: #2980b9;
+        }
+        
+        .upload-area input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        
+        .upload-text {
+            font-size: 18px;
+            color: #666;
+        }
+        
+        .progress {
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background-color: #3498db;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .status {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .titles {
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .title-item {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .actions {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 0 5px;
+            font-size: 16px;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .results {
+            display: none;
+        }
+        
+        .download-item {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .download-item a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        
+        .download-item a:hover {
+            text-decoration: underline;
+        }
+        
+        .error {
+            background-color: #ffebee;
+            border: 1px solid #ffcdd2;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .success {
+            background-color: #e8f5e8;
+            border: 1px solid #c8e6c9;
+            color: #2e7d32;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF拆分工具</h1>
+        
+        <div class="error" id="error"></div>
+        <div class="success" id="success"></div>
+        
+        <!--文件上传区域-->
+        <div class="upload-area">
+            <input type="file" id="fileInput" accept=".pdf">
+            <div class="upload-text">点击或拖拽PDF文件到此处</div>
+        </div>
+        
+        <!--进度显示-->
+        <div class="progress" id="progress">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="status" id="status">准备中...</div>
+        </div>
+        
+        <!--标题列表-->
+        <div class="titles" id="titles">
+            <h2>识别到的标题</h2>
+            <div id="titleList"></div>
+        </div>
+        
+        <!--操作按钮-->
+        <div class="actions">
+            <button id="splitBtn" disabled>开始拆分</button>
+            <button id="clearBtn">清除</button>
+        </div>
+        
+        <!--拆分结果-->
+        <div class="results" id="results">
+            <h2>拆分结果</h2>
+            <div id="resultList"></div>
+        </div>
+    </div>
+    
+    <!--引入所需库-->
+    <script src="https://s4.zstatic.net/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://s4.zstatic.net/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <script src="https://s4.zstatic.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <!--引入JSZip库用于生成zip文件-->
+    <script src="https://s4.zstatic.net/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <script>
+        const FIXED_TITLES = [
+            { key: "五、详细评估结果1.数据战略", value: "五、详细评估结果" },
+            { key: "2.数据治理2.1评估得分表", value: "2.数据治理" },
+            { key: "3.数据架构3.1评估得分表", value: "3.数据架构" },
+            { key: "4.数据应用4.1评估得分表", value: "4.数据应用" },
+            { key: "5.数据安全5.1评估得分表", value: "5.数据安全" },
+            { key: "6.数据质量6.1评估得分表", value: "6.数据质量" },
+            { key: "7.数据标准7.1评估得分表", value: "7.数据标准" },
+            { key: "8.数据生存周期8.1评估得分表", value: "8.数据生存周期" },
+            { key: "六、阶段性提升建议", value: "六、阶段性提升建议" },
+        ];
+        
+        const TITLE_TO_DIR = {
+            "1-评估基本信息": "1-评估基本信息",
+            "五、详细评估结果": "2-数据战略",
+            "2.数据治理": "3-数据治理",
+            "3.数据架构": "4-数据架构",
+            "4.数据应用": "5-数据应用",
+            "5.数据安全": "6-数据安全",
+            "6.数据质量": "7-数据质量",
+            "7.数据标准": "8-数据标准",
+            "8.数据生存周期": "9-数据生存周期",
+            "六、阶段性提升建议": "10-阶段性提升建议及附件"
+        };
+        
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.querySelector('.upload-area');
+        const progress = document.getElementById('progress');
+        const progressFill = document.getElementById('progressFill');
+        const status = document.getElementById('status');
+        const titles = document.getElementById('titles');
+        const titleList = document.getElementById('titleList');
+        const splitBtn = document.getElementById('splitBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const results = document.getElementById('results');
+        const resultList = document.getElementById('resultList');
+        const error = document.getElementById('error');
+        const success = document.getElementById('success');
+        
+        let selectedFile = null;
+        let extractedTitles = [];
+        let pdfJsData = null;
+        let pdfLibData = null;
+        
+        function init() {
+            function handleFileChange(e) {
+                if (e.target.files.length > 0) {
+                    selectedFile = e.target.files[0];
+                    processFile();
+                }
+            }
+            
+            fileInput.removeEventListener('change', handleFileChange);
+            fileInput.addEventListener('change', handleFileChange);
+            
+            function handleDragOver(e) {
+                e.preventDefault();
+                uploadArea.style.backgroundColor = '#f0f8ff';
+            }
+            
+            function handleDragLeave() {
+                uploadArea.style.backgroundColor = 'white';
+            }
+            
+            function handleDrop(e) {
+                e.preventDefault();
+                uploadArea.style.backgroundColor = 'white';
+                if (e.dataTransfer.files.length > 0) {
+                    selectedFile = e.dataTransfer.files[0];
+                    processFile();
+                }
+            }
+            
+            uploadArea.removeEventListener('dragover', handleDragOver);
+            uploadArea.removeEventListener('dragleave', handleDragLeave);
+            uploadArea.removeEventListener('drop', handleDrop);
+            
+            uploadArea.addEventListener('dragover', handleDragOver);
+            uploadArea.addEventListener('dragleave', handleDragLeave);
+            uploadArea.addEventListener('drop', handleDrop);
+            
+            splitBtn.addEventListener('click', splitPDF);
+            clearBtn.addEventListener('click', clearAll);
+        }
+        
+        async function processFile() {
+            try {
+                error.style.display = 'none';
+                success.style.display = 'none';
+                progress.style.display = 'block';
+                status.textContent = '正在读取PDF文件...';
+                progressFill.style.width = '0%';
+                
+                const arrayBuffer = await readFile(selectedFile);
+                
+                const pdfJsBuffer = new ArrayBuffer(arrayBuffer.byteLength);
+                const pdfJsView1 = new Uint8Array(arrayBuffer);
+                const pdfJsView2 = new Uint8Array(pdfJsBuffer);
+                pdfJsView2.set(pdfJsView1);
+                pdfJsData = pdfJsBuffer;
+                
+                const pdfLibBuffer = new ArrayBuffer(arrayBuffer.byteLength);
+                const pdfLibView1 = new Uint8Array(arrayBuffer);
+                const pdfLibView2 = new Uint8Array(pdfLibBuffer);
+                pdfLibView2.set(pdfLibView1);
+                pdfLibData = pdfLibBuffer;
+                
+                status.textContent = '正在提取标题...';
+                progressFill.style.width = '50%';
+                
+                extractedTitles = await extractTitles();
+                
+                if (extractedTitles.length === 0) {
+                    showError('未识别到任何标题，请检查PDF文件');
+                    return;
+                }
+                
+                progressFill.style.width = '100%';
+                status.textContent = '处理完成';
+                displayTitles();
+                splitBtn.disabled = false;
+            } catch (err) {
+                showError(`处理失败:${err.message}`);
+                console.error(err);
+            }
+        }
+        
+        function readFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(new Error('文件读取失败'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+        
+        async function extractTitles() {
+            try {
+                const loadingTask = pdfjsLib.getDocument({ data: pdfJsData });
+                const pdfDoc = await loadingTask.promise;
+                const pageCount = pdfDoc.numPages;
+                const titles = [];
+                const foundTitles = new Set();
+                
+                for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+                    const page = await pdfDoc.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    let pageText = '';
+                    
+                    for (const item of textContent.items) {
+                        pageText += item.str + ' ';
+                    }
+                    
+                    const searchKeyText = pageText.substring(0, 100).replace(/\s+/g, '');
+                    
+                    for (const title of FIXED_TITLES) {
+                        const thisKey = title.key;
+                        const thisValue = title.value;
+                        
+                        if (searchKeyText.includes(thisKey) && !foundTitles.has(thisKey)) {
+                            titles.push({ page: pageNum - 1, title: thisValue });
+                            foundTitles.add(thisValue);
+                            
+                            if (foundTitles.size === FIXED_TITLES.length) {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (foundTitles.size === FIXED_TITLES.length) {
+                        break;
+                    }
+                }
+                
+                return titles.sort((a, b) => FIXED_TITLES.indexOf(a.title) - FIXED_TITLES.indexOf(b.title));
+            } catch (err) {
+                console.error('提取标题失败:', err);
+            }
+        }
+        
+        function displayTitles() {
+            titleList.innerHTML = '';
+            
+            extractedTitles.forEach((titleInfo, index) => {
+                let title = titleInfo.title;
+                if (title === '五、详细评估结果') {
+                    title = '1.数据战略';
+                }
+                
+                const div = document.createElement('div');
+                div.className = 'title-item';
+                div.innerHTML = `<strong>${index + 1}.${title}</strong><br>页码:第${titleInfo.page + 1}页`;
+                titleList.appendChild(div);
+            });
+            
+            titles.style.display = 'block';
+        }
+        
+        async function splitPDF() {
+            try {
+                splitBtn.disabled = true;
+                status.textContent = '正在拆分PDF...';
+                progress.style.display = 'block';
+                progressFill.style.width = '0%';
+                
+                const newPdfLibBuffer = new ArrayBuffer(pdfLibData.byteLength);
+                const view1 = new Uint8Array(pdfLibData);
+                const view2 = new Uint8Array(newPdfLibBuffer);
+                view2.set(view1);
+                
+                const { PDFDocument } = PDFLib;
+                const originalDoc = await PDFDocument.load(newPdfLibBuffer);
+                const originalFilename = selectedFile.name.replace('.pdf', '');
+                const resultLinks = [];
+                const totalPages = originalDoc.getPageCount();
+                
+                if (extractedTitles.length > 0 && extractedTitles[0].page > 0) {
+                    const firstTitlePage = extractedTitles[0].page;
+                    const newDoc = await PDFDocument.create();
+                    
+                    for (let i = 0; i < firstTitlePage; i++) {
+                        const [copiedPage] = await newDoc.copyPages(originalDoc, [i]);
+                        newDoc.addPage(copiedPage);
+                    }
+                    
+                    const pdfBytes = await newDoc.save();
+                    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    resultLinks.push({
+                        name: `${originalFilename}_1-${firstTitlePage}.pdf`,
+                        url: url,
+                        folder: '1-评估基本信息'
+                    });
+                }
+                
+                for (let i = 0; i < extractedTitles.length; i++) {
+                    const titleInfo = extractedTitles[i];
+                    const startPage = titleInfo.page;
+                    const endPage = (i < extractedTitles.length - 1) ? extractedTitles[i + 1].page - 1 : totalPages - 1;
+                    
+                    const newDoc = await PDFDocument.create();
+                    
+                    for (let j = startPage; j <= endPage; j++) {
+                        const [copiedPage] = await newDoc.copyPages(originalDoc, [j]);
+                        newDoc.addPage(copiedPage);
+                    }
+                    
+                    const pdfBytes = await newDoc.save({ useObjectStreams: true, compress: true });
+                    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const folder = TITLE_TO_DIR[titleInfo.title] || `${i + 1}-${titleInfo.title}`;
+                    
+                    resultLinks.push({
+                        name: `${originalFilename}_${startPage + 1}-${endPage + 1}.pdf`,
+                        url: url,
+                        folder: folder
+                    });
+                    
+                    progressFill.style.width = `${Math.round(((i + 1) / extractedTitles.length) * 100)}%`;
+                }
+                
+                progressFill.style.width = '100%';
+                status.textContent = '拆分完成';
+                displayResults(resultLinks);
+            } catch (err) {
+                showError(`拆分失败:${err.message}`);
+                console.error(err);
+            } finally {
+                splitBtn.disabled = false;
+            }
+        }
+        
+        let generatedFiles = [];
+        
+        function displayResults(resultLinks) {
+            resultList.innerHTML = '';
+            generatedFiles = resultLinks;
+            const groupedResults = {};
+            
+            resultLinks.forEach(link => {
+                if (!groupedResults[link.folder]) {
+                    groupedResults[link.folder] = [];
+                }
+                groupedResults[link.folder].push(link);
+            });
+            
+            const downloadAllBtn = document.createElement('button');
+            downloadAllBtn.textContent = '下载完整拆分文件（ZIP）';
+            downloadAllBtn.style.marginBottom = '20px';
+            downloadAllBtn.style.backgroundColor = '#4CAF50';
+            downloadAllBtn.style.color = 'white';
+            downloadAllBtn.style.border = 'none';
+            downloadAllBtn.style.padding = '10px 20px';
+            downloadAllBtn.style.borderRadius = '4px';
+            downloadAllBtn.style.cursor = 'pointer';
+            downloadAllBtn.onclick = downloadAllAsZip;
+            resultList.appendChild(downloadAllBtn);
+            
+            Object.entries(groupedResults).forEach(([folder, links]) => {
+                const folderDiv = document.createElement('div');
+                folderDiv.innerHTML = `<h3>${folder}</h3>`;
+                resultList.appendChild(folderDiv);
+                
+                links.forEach(link => {
+                    const div = document.createElement('div');
+                    div.className = 'download-item';
+                    div.innerHTML = `<span>${link.name}</span><a href="${link.url}" download="${link.name}" target="_blank">下载</a>`;
+                    resultList.appendChild(div);
+                });
+            });
+            
+            results.style.display = 'block';
+            progress.style.display = 'none';
+        }
+        
+        async function downloadAllAsZip() {
+            try {
+                const zip = new JSZip();
+                
+                for (const fileInfo of generatedFiles) {
+                    const response = await fetch(fileInfo.url);
+                    const blob = await response.blob();
+                    const arrayBuffer = await blob.arrayBuffer();
+                    const fullPath = `${fileInfo.folder}/${fileInfo.name}`;
+                    zip.file(fullPath, arrayBuffer);
+                }
+                
+                const originalFilename = selectedFile.name.replace('.pdf', '');
+                const zipName = `${originalFilename}_拆分结果.zip`;
+                
+                zip.generateAsync({ type: 'blob' }).then(function(blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = zipName;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                });
+            } catch (err) {
+                showError(`生成ZIP文件失败:${err.message}`);
+                console.error(err);
+            }
+        }
+        
+        function clearAll() {
+            selectedFile = null;
+            extractedTitles = [];
+            pdfJsData = null;
+            pdfLibData = null;
+            generatedFiles = [];
+            fileInput.value = '';
+            progress.style.display = 'none';
+            titles.style.display = 'none';
+            results.style.display = 'none';
+            error.style.display = 'none';
+            success.style.display = 'none';
+            splitBtn.disabled = true;
+        }
+        
+        function showError(message) {
+            error.textContent = message;
+            error.style.display = 'block';
+            progress.style.display = 'none';
+        }
+        
+        function showSuccess(message) {
+            success.textContent = message;
+            success.style.display = 'block';
+        }
+        
+        init();
+    </script>
+</body>
+</html>

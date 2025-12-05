@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DCMM 半自动步枪</title> <!-- 修改这里的标题 -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>DCMM半自动步枪</h1> <!-- 修改后的标题 -->
+        
+        <!-- 新增：自定义开头输入区域 -->
+        <div class="custom-prefix-container">
+            <div class="prefix-title">自定义描述开头（将应用于所有条款的生成结果）</div>
+            <textarea class="prefix-input" id="customPrefix" placeholder="请输入统一的描述开头，例如：根据评估材料及相关图片分析，本条款执行情况如下：">根据组织提供的相关材料及参考图片分析，结合DCMM评估标准要求，本条款的执行情况如下：</textarea>
+            <div class="prefix-tip">提示：<span>输入后生成的所有条款描述都会自动带上此开头</span>，可随时修改，修改后新生成的描述会使用最新开头</div>
+        </div>
+
+        <!-- 新增：AI API设置区域 -->
+        <div class="custom-prefix-container">
+            <div class="prefix-title">AI服务设置</div>
+            <!-- AI服务提供商选择 -->
+            <div style="margin-bottom: 1rem;">
+                <label style="font-weight: bold; margin-right: 1rem;">选择AI服务提供商：</label>
+                <select id="aiServiceProvider" style="padding: 8px 12px; border: 1px solid #dbdbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="deepseek">DeepSeek（深度求索）</option>
+                    <option value="doubao">豆包（Doubao）</option>
+                    <option value="openai">OpenAI</option>
+                </select>
+            </div>
+            <!-- API密钥输入 -->
+            <div id="apiKeyContainer">
+                <div class="prefix-title" id="apiKeyTitle">DeepSeek API密钥</div>
+                <input type="password" class="prefix-input" id="aiApiKey" placeholder="请输入您的API密钥" style="height: 40px;">
+                <div class="prefix-tip" id="apiKeyTip">提示：<span>输入后将使用DeepSeek API生成描述</span>，密钥仅保存在当前浏览器，刷新页面后需要重新输入</div>
+            </div>
+        </div>
+
+        <p class="tool-desc">每个条款可上传多张参考图片（支持点击选择或拖拽上传），点击"生成描述"按钮单独生成；也可上传多个图片后点击底部"集中生成所有描述"（未上传图片的条款不会生成），描述不少于300字</p>
+
+        <!-- 条款列表区域（按大域-子域层级分类） -->
+        <div id="clause-container">
+            <!-- 大域和子域将通过JS动态渲染 -->
+        </div>
+
+        <!-- 集中生成按钮区域 -->
+        <div class="batch-generate-container">
+            <button class="batch-generate-btn" id="batchGenerateBtn" disabled>集中生成所有描述</button>
+            <button class="batch-generate-btn" id="exportToWordBtn" style="margin-left: 1rem; background-color: #48bb78;">导出到Word</button>
+            <div class="batch-loading" id="batchLoading">AI正在批量分析图片，生成所有条款描述中...（请耐心等待）</div>
+            <div class="batch-tip">提示：仅为已上传图片且未生成描述的条款生成描述，生成过程中请勿刷新页面</div>
+        </div>
+    </div>
+
+    <!-- 返回顶部按钮 -->
+    <div class="back-to-top" id="backToTop">↑</div>
+
+    <script>
+        // 处理AI服务提供商选择变化
+        document.getElementById('aiServiceProvider').addEventListener('change', function() {
+            const selectedProvider = this.value;
+            const apiKeyTitle = document.getElementById('apiKeyTitle');
+            const apiKeyTip = document.getElementById('apiKeyTip');
+            const aiApiKey = document.getElementById('aiApiKey');
+            
+            // 根据选择的提供商更新标题和提示信息
+            switch(selectedProvider) {
+                case 'deepseek':
+                    apiKeyTitle.textContent = 'DeepSeek API密钥';
+                    apiKeyTip.innerHTML = '提示：<span>输入后将使用DeepSeek API生成描述</span>，密钥仅保存在当前浏览器，刷新页面后需要重新输入';
+                    aiApiKey.placeholder = '请输入您的DeepSeek API密钥（sk-...）';
+                    break;
+                case 'doubao':
+                    apiKeyTitle.textContent = '豆包 API密钥';
+                    apiKeyTip.innerHTML = '提示：<span>输入后将使用豆包API生成描述</span>，密钥仅保存在当前浏览器，刷新页面后需要重新输入';
+                    aiApiKey.placeholder = '请输入您的豆包API密钥';
+                    break;
+                case 'openai':
+                    apiKeyTitle.textContent = 'OpenAI API密钥';
+                    apiKeyTip.innerHTML = '提示：<span>输入后将使用OpenAI API生成描述</span>，密钥仅保存在当前浏览器，刷新页面后需要重新输入';
+                    aiApiKey.placeholder = '请输入您的OpenAI API密钥（sk-...）';
+                    break;
+            }
+        });
+
+        // DCMM条款按大域-子域层级分类数据
+        const dcmmMajorDomains = [
+            {
+                name: "数据战略",
+                domains: [
+                    {
+                        name: "数据战略规划",
+                        clauses: [
+                            "制定了；",
+                            "制定了能反应整个组织业务发展需求的数据战略；",
+                            "制定了数据战略的管理制度和流程，明确利益相关者的职责，规范数据战略的管理过程；",
+                            "根据组织制定的数据战略提供资源保障；",
+                            "将组织的数据管理战略形成文件并按组织定义的标准过程进行维护、审查和公告；",
+                            "编制了数据战略的优化路线图，指导数据工作的开展；",
+                            "定期修订已发布的数据战略。"
+                        ]
+                    },
+                    {
+                        name: "数据战略实施",
+                        clauses: [
+                            "针对数据职能任务，建立系统完整的评估准则；",
+                            "在组织范围内全面评估实际情况，确定各项数据职能与愿景、目标的差距；",
+                            "制定了数据战略推进工作报告模板，并定期发布，使利益相关者了解数据战略实施的情况和存在的问题；",
+                            "结合组织业务战略，利用业务价值驱动方法评估数据管理和数据应用工作的优先级，制定实施计划，并提供资源、资金等方面的保障；",
+                            "跟踪评估各项数据任务的实施情况，并结合工作进展调整更新实施计划。"
+                        ]
+                    },
+                    {
+                        name: "数据战略评估",
+                        clauses: [
+                            "在组织范围内，根据标准工作流程和方法建立数据管理和应用的相关业务案例；",
+                            "在组织范围内制定了数据任务效益评估模型以及相关的管理办法；",
+                            "在组织范围内，业务案例的制定能获得高层管理者、业务部门的支持和参与；",
+                            "在组织范围内，通过成本收益准则指导数据职能项目的实施优先级安排；",
+                            "在组织范围内，通过任务效益评估模型对数据战略实施任务进行评估和管理，并纳入审计范围。"
+                        ]
+                    }
+                ]
+            },
+            {
+                name: "数据治理",
+                domains: [
+                    {
+                        name: "数据治理组织",
+                        clauses: [
+                            "管理层负责数据治理工作相关的决策，参与数据管理相关工作；",
+                            "在组织范围内明确统一的数据治理归口部门，负责组织协调各项数据职能工作；",
+                            "数据治理人员的岗位职责明确，可体现在岗位描述中；",
+                            "建立了数据管理工作的评价标准，建立了对相关人员的奖惩制度；",
+                            "在组织范围内建立、健全数据责任体系，覆盖管理、业务和技术等方面的人员，明确各方在数据管理过程中的职责；",
+                            "在组织范围内推动数据归口管理，确保各类数据都有明确的管理者；",
+                            "定期进行培训和经验分享，不断提高员工能力。"
+                        ]
+                    },
+                    {
+                        name: "数据制度建设",
+                        clauses: [
+                            "在组织范围内建立制度框架，并制定数据政策；",
+                            "建立全面的数据管理和数据应用制度，覆盖各数据职能域的管理办法和细则，并以文件形式发布，以保证数据职能工作的规范性和严肃性；",
+                            "建立有效的数据制度管理机制，统一了管理流程，用以指导数据制度的修订；",
+                            "能根据实施情况持续修订数据制度，保障数据制度的有效性；",
+                            "定期开展数据制度相关的培训和宣贯；",
+                            "业务人员积极参与数据制度的制定，并有效推动业务工作的开展；",
+                            "数据制度的制定参考了外部合规、监管方面的要求。"
+                        ]
+                    },
+                    {
+                        name: "数据治理沟通",
+                        clauses: [
+                            "建立组织级的沟通机制，明确不同数据管理活动的沟通路径，满足沟通升级或变更管理要求，在组织范围内发布并监督执行；",
+                            "识别了数据工作的利益相关者，明确了各自诉求，制定并审批了相关沟通计划和培训计划；",
+                            "明确了组织内部沟通宣贯方式，定期发布组织内外部的发展情况；",
+                            "定期开展数据相关的培训工作，提升人员的能力；",
+                            "制定了数据管理的相关政策、方法、规范在组织范围内进行沟通，覆盖大多数数据管理和数据应用相关部门，并根据反馈更新；",
+                            "明确了数据工作综合报告的内容组成，定期发布组织的数据工作综合报告。"
+                        ]
+                    }
+                ]
+            },
+            {
+                name: "数据架构",
+                domains: [
+                    {
+                        name: "数据模型",
+                        clauses: [
+                            "对组织中应用系统的数据现状进行全面梳理，了解当前存在的问题并提出解决办法；",
+                            "分析业界已有的数据模型参考架构，学习相关方法和经验；",
+                            "编制组织级数据模型开发规范，指导组织级数据模型的开发和管理；",
+                            "了解组织战略和业务发展方向，分析利益相关者的诉求，掌握组织的数据需求；",
+                            "建立覆盖组织业务经营管理和决策数据需求的组织级数据模型；",
+                            "使用组织级数据模型指导系统应用级数据模型的设计，并设置相应的角色进行管理；",
+                            "建立了组织级数据模型和系统级数据模型的映射关系，并根据系统的建设定期更新组织级的数据模型；",
+                            "建立了统一的数据资源目录，方便数据的查询和应用。"
+                        ]
+                    },
+                    {
+                        name: "数据分布",
+                        clauses: [
+                            "在组织层面制定了统一的数据分布关系管理规范，统一了数据分布关系的表现形式和管理流程；",
+                            "全面梳理对应用系统数据现状，明确需求和存在的问题，提出了解决办法；",
+                            "明确数据分布关系梳理的目标，梳理数据分布关系，形成数据分布关系成果库，包含了业务数据和流程、组织、系统之间的关系；",
+                            "组织内的所有数据按数据分类进行管理，确定每个数据的权威数据源和合理的数据部署；",
+                            "建立了数据分布关系应用和维护机制，明确了管理职责。"
+                        ]
+                    },
+                    {
+                        name: "数据集成与共享",
+                        clauses: [
+                            "建立组织级的数据集成共享规范，明确了全部数据归属于组织的原则，并统一提供了技术工具的支持；",
+                            "建立了组织级数据集成和共享平台的管理机制，实现组织内多种类型数据的整合；",
+                            "建立了数据集成与共享管理的管理方法和流程，明确了各方的职责；",
+                            "通过数据集成和共享平台对组织内部数据进行了集中管理，实现了统一采集，集中共享。"
+                        ]
+                    },
+                    {
+                        name: "元数据管理",
+                        clauses: [
+                            "制定了组织级的元数据分类及每一类元数据的范围，设计相应的元模型；",
+                            "规范和执行组织级元模型变更管理流程，基于规范流程对元模型进行变更；",
+                            "建立了组织级集中的元数据存储库，统一管理多个业务领域及其应用系统的元数据，并制定和执行统一的元数据集成和变更流程；",
+                            "元数据采集和变更流程与数据生存周期有效融合，在各阶段实现元数据采集和变更管理，元数据能及时、准确反映组织真实的数据环境现状；",
+                            "制定和执行统一的元数据应用需求管理流程，实现元数据应用需求统一管理和开发；",
+                            "实现了丰富的元数据应用，如：基于元数据的开发管理、元数据与应用系统的一致性校验、指标库管理等；",
+                            "各类元数据内容以服务的方式在应用系统之间共享使用。"
+                        ]
+                    }
+                ]
+            },
+            {
+                name: "数据应用",
+                domains: [
+                    {
+                        name: "数据分析",
+                        clauses: [
+                            "在组织级层面建设统一报表平台，整合报表资源，支持跨部门及部门内部的常规报表分析和数据接口开发；",
+                            "在组织内部建立了统一的数据分析应用的管理办法，指导各部门数据分析应用的建设；",
+                            "建立了专门的数据分析团队，快速支撑各部门的数据分析需求；",
+                            "能遵循统一的数据溯源方式来进行数据资源的协调；",
+                            "的数据分析结果能在各个部门之间进行复用，数据分析口径定义明确。"
+                        ]
+                    },
+                    {
+                        name: "数据开放共享",
+                        clauses: [
+                            "在组织层面制定了开放共享数据目录，方便外部用户浏览、查询已开放和共享的数据；",
+                            "在组织层面制定了统一的数据开放共享策略，包括安全、质量、组织和流程，用以指导组织的数据开放和共享；",
+                            "有计划的根据需要修改开放共享数据目录，开放和共享相关数据；",
+                            "对开放共享数据实现了统一管理，规范了数据口径，实现了集中开放共享。"
+                        ]
+                    },
+                    {
+                        name: "数据服务",
+                        clauses: [
+                            "在组织层面制定了数据服务目录，方便外部用户浏览、查询已具备的数据服务；",
+                            "统一了数据服务对外提供的方式，规范了数据服务状态监控、统计和管理功能，并由统一的平台提供；",
+                            "进一步细化了数据服务安全、质量、监控等方面的要求，建立了企业级的数据服务管理制度；",
+                            "有意识的响应外部的市场需求，积极探索对外数据服务的模式，主动提供数据服务。"
+                        ]
+                    }
+                ]
+            },
+            {
+                name: "数据安全",
+                domains: [
+                    {
+                        name: "数据安全策略",
+                        clauses: [
+                            "在组织层面统一了数据安全审计的流程、相关文档模板和规范，并征求了利益相关者的意见；",
+                            "制定了数据安全审计计划，可定期开展数据安全审计工作；",
+                            "评审数据安全标准与策略对业务、外部监管的需求；",
+                            "评审数据安全管理岗位、职责、流程的设置和执行情况；",
+                            "评审组织数据安全等级的划分情况；",
+                            "评审新项目开展过程中的数据安全管理工作情况；",
+                            "定期发布数据安全审计报告。"
+                        ]
+                    },
+                    {
+                        name: "数据安全管理",
+                        clauses: [
+                            "明确组织层面的数据质量目标，统一数据质量需求相关模板、管理机制；",
+                            "建立数据认责机制，明确各类数据管理人员以及相关职责，制定各类数据的优先级和质量管理需求；",
+                            "数据质量目标的制定考虑了外部监管、合规方面的要求；",
+                            "设计组织统一的数据质量评价体系以及相应的规则库；",
+                            "明确新建项目中数据质量需求的管理制度，统一管理权限。"
+                        ]
+                    },
+                    {
+                        name: "数据安全审计",
+                        clauses: [
+                            "明确组织级统一的数据质量检查制度、流程和工具，定义了相关人员的职责；",
+                            "根据组织内外部的需要，制定了组织级的数据质量检查计划；",
+                            "在组织层面统一开展数据质量的校验，帮助数据管理人员及时发现各自的数据质量问题；",
+                            "在组织层面建立数据质量问题发现、告警机制，明确数据质量责任人员；",
+                            "建立了数据质量相关考核制度，明确了数据质量责任人员考核的范围和目标；",
+                            "明确新建项目各个阶段数据质量的检查点、检查模板，强化新建项目数据质量检查的管理。"
+                        ]
+                    }
+                ]
+            },
+            {
+                name: "数据质量",
+                domains: [
+                    {
+                        name: "数据质量需求",
+                        clauses: [
+                            "明确组织层面的数据质量目标，统一数据质量需求相关模板、管理机制；",
+                            "建立数据认责机制，明确各类数据管理人员以及相关职责，制定各类数据的优先级和质量管理需求；",
+                            "数据质量目标的制定考虑了外部监管、合规方面的要求；",
+                            "设计组织统一的数据质量评价体系以及相应的规则库；",
+                            "明确新建项目中数据质量需求的管理制度，统一管理权限。"
+                        ]
+                    },
+                    {
+                        name: "数据质量检查",
+                        clauses: [
+                            "明确组织级统一的数据质量检查制度、流程和工具，定义了相关人员的职责；",
+                            "根据组织内外部的需要，制定了组织级的数据质量检查计划；",
+                            "在组织层面统一开展数据质量的校验，帮助数据管理人员及时发现各自的数据质量问题；",
+                            "在组织层面建立数据质量问题发现、告警机制，明确数据质量责任人员；",
+                            "建立了数据质量相关考核制度，明确了数据质量责任人员考核的范围和目标；",
+                            "明确新建项目各个阶段数据质量的检查点、检查模板，强化新建项目数据质量检查的管理。"
+                        ]
+                    },
+                    {
+                        name: "数据质量分析",
+                        clauses: [
+                            "制定组织层面的数据质量问题评估分析方法，制定统一的数据质量报告模板，明确了数据质量问题分析的要求；",
+                            "制定数据质量问题分析计划，定期进行数据质量问题分析；",
+                            "对关键数据质量问题的根本原因、影响范围进行分析；",
+                            "组织定期编制数据质量报告，并发送至利益相关者进行审阅；",
+                            "建立数据质量分析案例库，提升组织人员对于数据质量的关注度；",
+                            "对产生的信息进行知识总结，建立数据质量知识库。"
+                        ]
+                    },
+                    {
+                        name: "数据质量提升",
+                        clauses: [
+                            "建立组织层面的数据质量提升管理制度，明确数据质量提升方案的构成；",
+                            "结合利益相关者的诉求制定数据质量提升工作计划，并监督执行；",
+                            "定期开展数据质量提升工作，对重点问题进行汇总分析，制定数据质量提升方案，从业务流程优化，系统改进，制度和标准完善等层面进行提升；",
+                            "明确数据质量问题责任人，及时处理出现的问题，并提出相关建议；",
+                            "持续开展培训和宣贯，建立组织数据质量文化氛围。"
+                        ]
+                    }
+                ]
+            },
+            {
+                name: "数据标准",
+                domains: [
+                    {
+                        name: "业务术语",
+                        clauses: [
+                            "创建和应用组织级的业务术语标准；",
+                            "建立组织级的业务术语索引；",
+                            "在组织内明确了业务术语发布的渠道，并提供了浏览、查询功能；",
+                            "组织的业务术语在数据相关项目建设的过程中得到普遍应用；",
+                            "通过数据治理建立了业务术语应用、变更的检查机制；",
+                            "定期进行业务术语的宣贯和推广。"
+                        ]
+                    },
+                    {
+                        name: "参考数据和主数据",
+                        clauses: [
+                            "实现组织级的参考数据和主数据的统一管理；",
+                            "定义组织内部各参考数据和主数据的数据标准，并在组织内部发布；",
+                            "各应用系统中的参考数据和主数据与组织级的参考数据和主数据保持一致；",
+                            "明确各类参考数据和主数据的管理部门，并制定各类数据的管理规则；",
+                            "规范参考数据和主数据的管理流程，保证参考数据和主数据在各方面的应用；",
+                            "新建项目的过程中，统一分析项目与组织内部已有的参考数据和主数据的数据集成问题；",
+                            "分析、跟踪各应用系统中参考数据和主数据的数据质量问题，推动数据质量问题的解决。"
+                        ]
+                    },
+                    {
+                        name: "数据元",
+                        clauses: [
+                            "建立组织内部数据元管理规范，规范数据元的管理流程；",
+                            "依据国家标准、行业标准对组织内部的数据元标准进行优化；",
+                            "建立组织级的数据元目录，提供统一的查询方法；",
+                            "保证数据元标准与相关业务术语、参考数据等标准保持一致；",
+                            "定期组织和开展数据元应用的相关培训；",
+                            "建立数据元的应用机制，进行应用偏差分析；",
+                            "对于数据元相关的问题进行处理和跟踪。"
+                        ]
+                    },
+                    {
+                        name: "指标数据",
+                        clauses: [
+                            "根据组织的业务战略、外部监管需求建立统一的指标框架；",
+                            "在组织层面建立指标数据标准，包括指标维度、公式、口径、描述等；",
+                            "对于各部门的指标进行统一汇总，形成组织层面的指标数据字典并发布；",
+                            "明确各类指标数据的归口管理部门，进行本部门指标数据的管理；",
+                            "规范了组织层面的指标数据管理流程，明确了指标数据的管理需求，包括质量、安全等需求；",
+                            "对于指标数据相关的问题进行处理和跟踪。"
+                        ]
+                    }
+                ]
+            },
+            {
+                name: "数据生存周期",
+                domains: [
+                    {
+                        name: "数据需求",
+                        clauses: [
+                            "建立了组织级的数据需求收集、验证和汇总的标准流程，并遵循和执行；",
+                            "数据需求管理流程与信息化项目管理流程协调一致；",
+                            "根据业务、管理等方面的要求制定了数据需求的优先级；",
+                            "明确了数据需求管理的模板和数据需求描述的内容；",
+                            "评审了数据需求、数据标准、数据架构之间的一致性，并对数据标准和数据架构等内容进行了完善；",
+                            "记录了产生数据的业务流程，并管理和维护业务流程与数据需求的匹配关系；",
+                            "集中处理各部门的数据需求，统一开展数据寻源的工作。"
+                        ]
+                    },
+                    {
+                        name: "数据设计与开发",
+                        clauses: [
+                            "建立了组织级数据设计和开发标准流程并执行；",
+                            "建立了组织级数据解决方案设计、开发规范，指导约束各类数据设计和开发；",
+                            "建立了组织级数据解决方案的质量标准、安全标准并执行；",
+                            "应用级数据解决方案与组织级数据架构、数据标准、数据质量等协调一致；",
+                            "数据解决方案设计和开发过程中参考了权威数据源的设计，优化了数据集成关系并进行了评审；",
+                            "明确数据供需双方职责，统一开展数据准备工作。"
+                        ]
+                    },
+                    {
+                        name: "数据运维",
+                        clauses: [
+                            "建立了组织级数据提供方管理流程和标准并执行；",
+                            "建立了组织级的数据运维方案和流程并执行；",
+                            "数据运维解决方案能与组织级数据架构、数据标准、数据质量等工作协调一致；",
+                            "建立了数据需求变更管理流程，并以此对组织中的需求变更进行管理；",
+                            "定期制定数据运维管理工作报告，并在组织内进行发布。"
+                        ]
+                    },
+                    {
+                        name: "数据退役",
+                        clauses: [
+                            "全面收集了组织内部业务部门和外部监管部门数据退役需求；",
+                            "结合组织利益相关者的需求，建立了组织层面统一的数据退役标准；",
+                            "对不同数据建立了符合需求的数据保留和销毁策略并执行；",
+                            "制定了数据退役标准，定期检查退役数据的状态；",
+                            "对数据恢复请求进行审批，相关人员同意之后进行数据的恢复和查询；",
+                            "根据数据优先级确定不同的存储设备。"
+                        ]
+                    }
+                ]
+            }
+        ];
+
+        // 全局变量
+        let globalClauseId = 1; // 全局条款ID，确保每个条款ID唯一
+        const uploadedClauseInfo = new Map(); // 存储已上传图片的条款ID和对应的图片数量
+        
+        // 将数字转换为中文带圈数字①②③...
+        function toCircledNumber(num) {
+            // 中文带圈数字Unicode范围：①(1) - ⑳(20)
+            if (num >= 1 && num <= 20) {
+                return String.fromCharCode(0x2460 + num - 1);
+            }
+            // 超过20的数字保持原样或使用其他处理方式
+            return num;
+        }
+        
+        // 渲染所有大域、子域和条款
+        const clauseContainer = document.getElementById('clause-container');
+        
+        dcmmMajorDomains.forEach((majorDomain, majorDomainIndex) => {
+            // 计算当前大域下的总条款数
+            const totalClauses = majorDomain.domains.reduce((count, domain) => count + domain.clauses.length, 0);
+            
+            // 创建大域容器
+            const majorDomainHtml = `
+                <div class="major-domain-container" data-major-domain-index="${majorDomainIndex}">
+                    <div class="major-domain-header">
+                            <span>${majorDomain.name}</span>
+                            <div class="major-domain-toggle">▼</div>
+                        </div>
+                    <div class="major-domain-content">
+                        <!-- 子域将动态渲染在这里 -->
+                    </div>
+                </div>
+            `;
+            clauseContainer.innerHTML += majorDomainHtml;
+            
+            // 获取当前大域的内容容器
+            const majorDomainElement = clauseContainer.querySelector(`[data-major-domain-index="${majorDomainIndex}"]`);
+            const majorDomainContent = majorDomainElement.querySelector('.major-domain-content');
+            
+            // 渲染当前大域下的所有子域
+            majorDomain.domains.forEach((domain, domainIndex) => {
+                // 创建子域容器
+                const domainHtml = `
+                    <div class="domain-container" data-domain-index="${domainIndex}" data-major-domain-index="${majorDomainIndex}">
+                        <div class="domain-header">
+                            <span>${domain.name}</span>
+                            <div class="domain-toggle">▼</div>
+                        </div>
+                        <div class="domain-content">
+                            <div class="clause-list">
+                                <!-- 子域下的条款将动态渲染 -->
+                            </div>
+                        </div>
+                    </div>
+                `;
+                majorDomainContent.innerHTML += domainHtml;
+                
+                // 渲染当前子域下的所有条款
+                const domainElement = majorDomainContent.querySelector(`[data-domain-index="${domainIndex}"]`);
+                const clauseList = domainElement.querySelector('.clause-list');
+                
+                let localClauseId = 1; // 每个子域内部从1开始计数
+                
+                domain.clauses.forEach(clause => {
+                    const clauseId = globalClauseId++; // 分配唯一内部ID
+                    const displayId = localClauseId++; // 显示的编号，每个子域从1开始
+                    const circledNumber = toCircledNumber(displayId); // 转换为带圈数字
+                    const clauseHtml = `
+                        <div class="clause-item" data-clause-id="${clauseId}">
+                            <div class="clause-header">
+                                <div class="clause-number">${circledNumber}</div>
+                                <div class="custom-prefix-display"></div>
+                                <div class="clause-text">${clause}</div>
+                            </div>
+                            
+                            <div class="image-upload-item" id="upload-area-${clauseId}">
+                                <div class="upload-item-text">上传本条款参考图片（支持<span>JPG、PNG格式</span>，<span>点击选择</span>或<span>拖拽上传</span>，可上传多张，仅用于本条款描述生成）</div>
+                                <label for="image-input-${clauseId}" class="item-upload-btn">选择图片</label>
+                                <input type="file" id="image-input-${clauseId}" class="file-input" accept="image/jpeg,image/png" multiple>
+                                <!-- 多图预览容器 -->
+                                <div class="preview-container" id="preview-container-${clauseId}"></div>
+                                <div class="image-count-tip" id="image-count-${clauseId}" style="display: none;">已上传 <span id="count-number-${clauseId}">0</span> 张图片</div>
+                                <div class="empty-tip" id="tip-${clauseId}">未上传图片，无法生成描述</div>
+                            </div>
+                            
+                            <div class="btn-group">
+                                <button class="single-generate-btn" data-id="${clauseId}">生成描述</button>
+                            </div>
+                            
+                            <div class="loading" id="loading-${clauseId}">AI正在分析图片，生成描述中...</div>
+                            <div class="clause-result" id="result-${clauseId}"></div>
+                        </div>
+                    `;
+                    clauseList.innerHTML += clauseHtml;
+                    
+                    // 初始化条款的上传信息
+                    uploadedClauseInfo.set(clauseId, 0);
+                    // 初始化生成按钮状态为禁用
+                    document.querySelector(`.single-generate-btn[data-id="${clauseId}"]`).disabled = true;
+                });
+            });
+        });
+
+        // 更新所有条款的前缀显示
+        function updateAllClausePrefixes() {
+            const prefixDisplays = document.querySelectorAll('.custom-prefix-display');
+            const prefix = document.getElementById('customPrefix').value.trim();
+            prefixDisplays.forEach(display => {
+                display.textContent = prefix;
+            });
+        }
+
+        // 监听自定义前缀输入变化
+        document.getElementById('customPrefix').addEventListener('input', function() {
+            updateAllClausePrefixes();
+        });
+
+        // 页面加载时初始化所有条款的前缀
+        window.addEventListener('DOMContentLoaded', function() {
+            updateAllClausePrefixes();
+        });
+
+        // 绑定大域展开/收起事件
+        clauseContainer.addEventListener('click', function(e) {
+            // 处理大域展开/收起
+            const majorDomainHeader = e.target.closest('.major-domain-header');
+            if (majorDomainHeader) {
+                e.stopPropagation();
+                const majorDomainContainer = majorDomainHeader.closest('.major-domain-container');
+                const majorDomainContent = majorDomainContainer.querySelector('.major-domain-content');
+                const majorDomainToggle = majorDomainContainer.querySelector('.major-domain-toggle');
+                
+                majorDomainContent.classList.toggle('expanded');
+                majorDomainToggle.classList.toggle('expanded');
+                return;
+            }
+            
+            // 处理子域展开/收起
+            const domainHeader = e.target.closest('.domain-header');
+            if (domainHeader) {
+                e.stopPropagation();
+                const domainContainer = domainHeader.closest('.domain-container');
+                const domainContent = domainContainer.querySelector('.domain-content');
+                const domainToggle = domainContainer.querySelector('.domain-toggle');
+                
+                domainContent.classList.toggle('expanded');
+                domainToggle.classList.toggle('expanded');
+                return;
+            }
+        });
+
+        // 初始化所有条款的上传功能（点击上传和拖拽上传）
+        for (let clauseId = 1; clauseId < globalClauseId; clauseId++) {
+            initClauseUpload(clauseId);
+        }
+
+        // 初始化单个条款的上传功能
+        function initClauseUpload(clauseId) {
+            const fileInput = document.getElementById(`image-input-${clauseId}`);
+            const previewContainer = document.getElementById(`preview-container-${clauseId}`);
+            const generateBtn = document.querySelector(`.single-generate-btn[data-id="${clauseId}"]`);
+            const emptyTip = document.getElementById(`tip-${clauseId}`);
+            const uploadArea = document.getElementById(`upload-area-${clauseId}`);
+            const imageCountTip = document.getElementById(`image-count-${clauseId}`);
+            const countNumber = document.getElementById(`count-number-${clauseId}`);
+
+            // 点击上传功能（支持多选）
+            fileInput.addEventListener('change', (e) => {
+                const files = e.target.files;
+                if (files && files.length > 0) {
+                    handleMultipleFilesUpload(files, clauseId);
+                    // 清空文件输入，允许重复选择同一文件
+                    fileInput.value = '';
+                }
+            });
+
+            // 拖动上传功能 - 拖入事件
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadArea.classList.add('active');
+            });
+
+            // 拖动上传功能 - 拖离事件
+            uploadArea.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadArea.classList.remove('active');
+            });
+
+            // 拖动上传功能 - 放置事件（支持多文件）
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadArea.classList.remove('active');
+                
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) {
+                    // 过滤出合法的图片文件
+                    const validFiles = Array.from(files).filter(file => 
+                        file.type === 'image/jpeg' || file.type === 'image/png'
+                    );
+                    
+                    if (validFiles.length > 0) {
+                        handleMultipleFilesUpload(validFiles, clauseId);
+                    } else {
+                        alert('请上传JPG或PNG格式的图片');
+                    }
+                }
+            });
+
+            // 调整图片大小的函数
+            function resizeImage(img, maxWidth, maxHeight) {
+                return new Promise((resolve, reject) => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // 计算调整后的尺寸，保持宽高比
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > maxWidth) {
+                        height *= maxWidth / width;
+                        width = maxWidth;
+                    }
+                    
+                    if (height > maxHeight) {
+                        width *= maxHeight / height;
+                        height = maxHeight;
+                    }
+                    
+                    // 设置canvas尺寸
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // 绘制调整后的图片
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // 转换为DataURL
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            const reader = new FileReader();
+                            reader.onload = (e) => resolve(e.target.result);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(blob);
+                        } else {
+                            reject(new Error('Canvas to blob failed'));
+                        }
+                    }, img.src.split(';')[0].split('/')[1] || 'image/png');
+                });
+            }
+
+            // 处理多文件上传的通用函数
+            function handleMultipleFilesUpload(files, clauseId) {
+                // 目标尺寸：9.94厘米宽，14.56厘米高
+                // 转换为像素（基于300 DPI）：1厘米 = 300/2.54 ≈ 118.11像素
+                const targetWidth = Math.round(9.94 * 300 / 2.54); // 约1174像素
+                const targetHeight = Math.round(14.56 * 300 / 2.54); // 约1720像素
+                
+                // 遍历所有文件
+                Array.from(files).forEach(file => {
+                    // 创建预览图元素
+                    const previewWrapper = document.createElement('div');
+                    previewWrapper.className = 'preview-wrapper';
+                    previewWrapper.dataset.fileName = file.name; // 存储文件名用于标识
+                    
+                    const previewImg = document.createElement('img');
+                    previewImg.className = 'item-preview-image';
+                    previewImg.alt = `条款${clauseId}参考图片-${file.name}`;
+                    
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'delete-image-btn';
+                    deleteBtn.innerHTML = '×';
+                    deleteBtn.title = '删除图片';
+                    
+                    // 添加删除图片事件
+                    deleteBtn.addEventListener('click', function() {
+                        previewWrapper.remove();
+                        updateImageCount(clauseId, -1);
+                    });
+                    
+                    // 显示预览图
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        const tempImg = new Image();
+                        tempImg.onload = async () => {
+                            try {
+                                // 调整图片大小
+                                const resizedDataUrl = await resizeImage(tempImg, targetWidth, targetHeight);
+                                // 使用调整后的图片
+                                previewImg.src = resizedDataUrl;
+                            } catch (error) {
+                                console.error('调整图片大小失败:', error);
+                                // 如果调整失败，使用原始图片
+                                previewImg.src = event.target.result;
+                            }
+                        };
+                        tempImg.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                    
+                    // 组装预览元素
+                    previewWrapper.appendChild(previewImg);
+                    previewWrapper.appendChild(deleteBtn);
+                    previewContainer.appendChild(previewWrapper);
+                });
+                
+                // 更新图片计数
+                updateImageCount(clauseId, files.length);
+            }
+
+            // 更新图片计数和按钮状态
+            function updateImageCount(clauseId, change) {
+                const currentCount = uploadedClauseInfo.get(clauseId) + change;
+                uploadedClauseInfo.set(clauseId, Math.max(0, currentCount));
+                
+                const newCount = uploadedClauseInfo.get(clauseId);
+                countNumber.textContent = newCount;
+                
+                // 更新计数提示显示状态
+                if (newCount > 0) {
+                    imageCountTip.style.display = 'block';
+                    emptyTip.style.display = 'none';
+                    generateBtn.disabled = false;
+                } else {
+                    imageCountTip.style.display = 'none';
+                    emptyTip.style.display = 'block';
+                    generateBtn.disabled = true;
+                }
+                
+                // 更新集中生成按钮状态
+                updateBatchGenerateBtnStatus();
+            }
+        }
+
+        // 绑定单个生成按钮事件
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('single-generate-btn') && !e.target.disabled) {
+                const clauseId = e.target.getAttribute('data-id');
+                generateClauseDescription(clauseId);
+            }
+        });
+
+        // 集中生成所有描述功能
+        const batchGenerateBtn = document.getElementById('batchGenerateBtn');
+        const batchLoading = document.getElementById('batchLoading');
+
+        batchGenerateBtn.addEventListener('click', function() {
+            if (this.disabled) return;
+            
+            // 过滤出有上传图片且未生成描述的条款
+            const clausesToGenerate = Array.from(uploadedClauseInfo.entries())
+                .filter(([clauseId, count]) => {
+                    // 条件1：有上传图片
+                    const hasImages = count > 0;
+                    // 条件2：未生成描述（结果容器为空或未显示）
+                    const resultElement = document.getElementById(`result-${clauseId}`);
+                    const hasGenerated = resultElement.style.display === 'block' && resultElement.innerHTML.trim() !== '';
+                    
+                    return hasImages && !hasGenerated;
+                })
+                .map(([clauseId]) => clauseId);
+            
+            if (clausesToGenerate.length === 0) {
+                alert('没有需要生成描述的条款（已上传图片且未生成描述的条款为空）');
+                return;
+            }
+
+            // 显示批量加载状态，禁用按钮
+            batchLoading.style.display = 'block';
+            batchGenerateBtn.disabled = true;
+
+            // 批量生成所有需要的条款描述（依次生成，避免同时加载）
+            let currentIndex = 0;
+
+            // 递归生成下一个条款描述
+            async function generateNext() {
+                if (currentIndex < clausesToGenerate.length) {
+                    const clauseId = clausesToGenerate[currentIndex];
+                    const loading = document.getElementById(`loading-${clauseId}`);
+                    
+                    // 显示当前条款的加载状态
+                    loading.style.display = 'block';
+
+                    try {
+                        // 生成描述
+                        await generateClauseDescription(clauseId, false);
+                        currentIndex++;
+                        
+                        // 隐藏当前条款的加载状态
+                        loading.style.display = 'none';
+                        
+                        // 等待1秒后生成下一个，避免API调用过于频繁
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        // 生成下一个
+                        await generateNext();
+                    } catch (error) {
+                        console.error('批量生成时出错:', error);
+                        currentIndex++;
+                        loading.style.display = 'none';
+                        // 继续生成下一个条款
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await generateNext();
+                    }
+                } else {
+                    // 所有条款生成完成
+                    batchLoading.style.display = 'none';
+                    alert(`集中生成完成！本次共生成了${clausesToGenerate.length}个条款的描述`);
+                    // 重新启用按钮
+                    batchGenerateBtn.disabled = false;
+                    // 滚动到顶部
+                    window.scrollTo({
+                        top: 0,
+                        behavior: 'smooth'
+                    });
+                }
+            }
+
+            // 开始批量生成
+            generateNext();
+        });
+
+        // 生成条款描述的通用函数
+        async function generateClauseDescription(clauseId, showSingleLoading = true) {
+            const loading = document.getElementById(`loading-${clauseId}`);
+            const result = document.getElementById(`result-${clauseId}`);
+            const clauseElement = document.querySelector(`.clause-item[data-clause-id="${clauseId}"]`);
+            const clauseText = clauseElement ? clauseElement.querySelector('.clause-text').textContent : '';
+            const imageCount = uploadedClauseInfo.get(clauseId) || 0;
+
+            if (showSingleLoading) {
+                // 显示加载状态
+                loading.style.display = 'block';
+                result.style.display = 'none';
+            }
+
+            // 获取用户自定义的开头（去除首尾空格，为空时使用默认值）
+            const customPrefix = document.getElementById('customPrefix').value.trim() || 
+                '根据组织提供的相关材料及参考图片分析，结合DCMM评估标准要求，本条款的执行情况如下：';
+            
+            // 获取选择的AI服务提供商和API密钥
+            const aiServiceProvider = document.getElementById('aiServiceProvider').value;
+            const apiKey = document.getElementById('aiApiKey').value.trim();
+            if (!apiKey) {
+                alert(`请先输入${aiServiceProvider === 'deepseek' ? 'DeepSeek' : aiServiceProvider === 'doubao' ? '豆包' : 'OpenAI'} API密钥`);
+                if (showSingleLoading) {
+                    loading.style.display = 'none';
+                }
+                return;
+            }
+
+            try {
+                let response, data, aiDesc;
+                
+                // 根据选择的AI服务提供商调用相应的API
+                switch(aiServiceProvider) {
+                    case 'deepseek':
+                        // 调用DeepSeek API
+                        response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({
+                                model: 'deepseek-chat',
+                                messages: [
+                                    {
+                                        role: 'system',
+                                        content: '你是一位DCMM（数据管理能力成熟度评估模型）评估专家，请根据条款内容生成一份专业的评估描述，要求不少于300字不超过500字，条款前五个字一般是企业的名称提供的截图是已经达成的成就所以不要出现负面描述，不要出现（如......）这种格式和**这种格式，不要出现其他符号，你能用的只有“，”、“。”、“、”、“;”、“:”内容详细具体，符合DCMM评估标准。'
+                                    },
+                                    {
+                                        role: 'user',
+                                        content: `条款内容：${customPrefix}${clauseText}\n请生成符合DCMM评估标准的条款描述，不少于300字。`
+                                    }
+                                ],
+                                max_tokens: 500,
+                                temperature: 0.7
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.error?.message || 'DeepSeek API调用失败，请检查密钥是否正确');
+                        }
+                        
+                        data = await response.json();
+                        aiDesc = data.choices[0].message.content.trim();
+                        break;
+                        
+                    case 'doubao':
+                        // 调用豆包API
+                        response = await fetch('https://api.doubao.com/api/v1/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({
+                                model: 'doubao-pro',
+                                messages: [
+                                    {
+                                        role: 'system',
+                                        content: '你是一位DCMM（数据管理能力成熟度评估模型）评估专家，请根据条款内容生成一份专业的评估描述，要求不少于300字，内容详细具体，符合DCMM评估标准。'
+                                    },
+                                    {
+                                        role: 'user',
+                                        content: `条款内容：${customPrefix}${clauseText}\n请生成符合DCMM评估标准的条款描述，不少于300字。`
+                                    }
+                                ],
+                                max_tokens: 500,
+                                temperature: 0.7
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.error?.message || '豆包API调用失败，请检查密钥是否正确');
+                        }
+                        
+                        data = await response.json();
+                        aiDesc = data.choices[0].message.content.trim();
+                        break;
+                        
+                    case 'openai':
+                    default:
+                        // 调用OpenAI API
+                        response = await fetch('https://api.openai.com/v1/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({
+                                model: 'gpt-3.5-turbo',
+                                messages: [
+                                    {
+                                        role: 'system',
+                                        content: '你是一位DCMM（数据管理能力成熟度评估模型）评估专家，请根据条款内容生成一份专业的评估描述，要求不少于300字，内容详细具体，符合DCMM评估标准。'
+                                    },
+                                    {
+                                        role: 'user',
+                                        content: `条款内容：${customPrefix}${clauseText}\n请生成符合DCMM评估标准的条款描述，不少于300字。`
+                                    }
+                                ],
+                                max_tokens: 500,
+                                temperature: 0.7
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.error?.message || 'OpenAI API调用失败，请检查密钥是否正确');
+                        }
+                        
+                        data = await response.json();
+                        aiDesc = data.choices[0].message.content.trim();
+                        break;
+                }
+                
+                // 直接使用AI生成的描述，因为自定义开头已经包含在输入中
+                const finalDesc = aiDesc;
+
+                // 显示结果
+                if (showSingleLoading) {
+                    result.innerHTML = `<p>${finalDesc}</p>`;
+                    result.style.display = 'block';
+                    loading.style.display = 'none';
+                } else {
+                    result.innerHTML = `<p>${finalDesc}</p>`;
+                    result.style.display = 'block';
+                }
+                // 更新集中生成按钮状态
+                updateBatchGenerateBtnStatus();
+            } catch (error) {
+                console.error('生成描述时出错:', error);
+                const errorMsg = `生成描述失败: ${error.message}`;
+                if (showSingleLoading) {
+                    result.innerHTML = `<p style="color: red;">${errorMsg}</p>`;
+                    result.style.display = 'block';
+                    loading.style.display = 'none';
+                } else {
+                    result.innerHTML = `<p style="color: red;">${errorMsg}</p>`;
+                    result.style.display = 'block';
+                }
+                // 更新集中生成按钮状态
+                updateBatchGenerateBtnStatus();
+            }
+        }
+
+        // 更新集中生成按钮状态
+        function updateBatchGenerateBtnStatus() {
+            // 检查是否有已上传图片且未生成描述的条款
+            const hasPendingClauses = Array.from(uploadedClauseInfo.entries())
+                .some(([clauseId, count]) => {
+                    // 条件1：有上传图片
+                    const hasImages = count > 0;
+                    // 条件2：未生成描述（结果容器为空或未显示）
+                    const resultElement = document.getElementById(`result-${clauseId}`);
+                    const hasGenerated = resultElement.style.display === 'block' && resultElement.innerHTML.trim() !== '';
+                    
+                    return hasImages && !hasGenerated;
+                });
+            
+            batchGenerateBtn.disabled = !hasPendingClauses;
+        }
+
+        // 返回顶部功能
+        const backToTopBtn = document.getElementById('backToTop');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 300) {
+                backToTopBtn.classList.add('show');
+            } else {
+                backToTopBtn.classList.remove('show');
+            }
+        });
+
+        backToTopBtn.addEventListener('click', () => {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+
+        // 导出到Word功能
+        const exportToWordBtn = document.getElementById('exportToWordBtn');
+        exportToWordBtn.addEventListener('click', () => {
+            // 创建一个新的文档内容
+            let docContent = `
+                <html xmlns:o='urn:schemas-microsoft-com:office:office' 
+                      xmlns:w='urn:schemas-microsoft-com:office:word' 
+                      xmlns:v='urn:schemas-microsoft-com:vml'
+                      xmlns='http://www.w3.org/TR/REC-html40'>
+                <head>
+                    <meta charset='utf-8'>
+                    <title>DCMM评估条款描述</title>
+                    <!-- Word文档样式 -->
+                    <style>
+                        /* A4纸张设置 */
+                        @page {
+                            size: A4;
+                            margin-top: 2.54cm;
+                            margin-bottom: 2.54cm;
+                            margin-left: 3.18cm;
+                            margin-right: 3.18cm;
+                        }
+                        
+                        body {
+                            font-family: 'SimSun', '宋体', serif;
+                            margin: 0;
+                            padding: 2cm;
+                        }
+                        
+                        h1 {
+                            color: #000000; /* 黑色 */
+                            text-align: center;
+                            font-size: 22pt;
+                            font-weight: bold;
+                            border-bottom: 2px solid #000000;
+                            padding-bottom: 1rem;
+                            margin-bottom: 2rem;
+                        }
+                        
+                        /* 域名 - 宋体四号加粗，黑色 */
+                        h2 {
+                            color: #000000; /* 黑色 */
+                            font-size: 14pt; /* 四号 */
+                            font-weight: bold;
+                            margin-top: 2rem;
+                            margin-bottom: 1rem;
+                        }
+                        
+                        /* 子域名 - 宋体四号加粗，黑色 */
+                        h3 {
+                            color: #000000; /* 黑色 */
+                            font-size: 14pt; /* 四号 */
+                            font-weight: bold;
+                            margin-top: 1.5rem;
+                            margin-bottom: 0.8rem;
+                        }
+                        
+                        /* 条款描述文字 - 宋体小四号，黑色 */
+                        p {
+                            line-height: 1.5;
+                            mso-line-height-rule: multiple;
+                            mso-line-height-alt: 24pt; /* 1.5倍行距 (16pt * 1.5) */
+                            text-indent: 2em;
+                            mso-text-indent: 2em;
+                            text-align: justify;
+                            text-justify: inter-ideograph;
+                            color: #000000;
+                            font-size: 12pt;
+                            margin: 0;
+                            mso-margin-top-alt: 0;
+                            mso-margin-bottom-alt: 0;
+                        }
+                        
+                        /* 确保所有段落都应用相同样式 */
+                        body p {
+                            line-height: 1.5;
+                            mso-line-height-rule: multiple;
+                            mso-line-height-alt: 24pt;
+                            text-indent: 2em;
+                            mso-text-indent: 2em;
+                        }
+                        
+                        .clause-item {
+                            margin-bottom: 1.5rem;
+                            padding-bottom: 1rem;
+                        }
+                        
+                        .clause-number {
+                            color: #000000;
+                            font-weight: bold;
+                            margin-right: 0.5rem;
+                            font-size: 12pt;
+                        }
+                        
+                        .clause-images {
+                            margin: 1.5rem 0;
+                            text-align: center;
+                            page-break-inside: avoid;
+                        }
+                        
+                        /* 移除所有可能干扰图片大小的样式 */
+                        
+                        /* 条款编号段落特殊处理 */
+                        .clause-item > p:first-child {
+                            text-indent: 0; /* 编号所在段落不缩进 */
+                        }
+                        
+                        /* 条款文本设置缩进 */
+                        .clause-item > p:first-child strong {
+                            margin-left: 2em; /* 条款文本前空2字符 */
+                            font-weight: bold; /* 确保条款文本加粗 */
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h1>DCMM评估条款描述</h1>
+            `;
+            
+            // 收集所有生成的内容
+            const majorDomains = document.querySelectorAll('.major-domain-container');
+            // 确保只处理前8个主域容器
+            const validMajorDomains = Array.from(majorDomains).slice(0, 8);
+            validMajorDomains.forEach((majorDomain, majorIndex) => {
+                // 主域索引从1开始（对应8个主域）
+                const currentMajorIndex = majorIndex + 1;
+                const subDomains = majorDomain.querySelectorAll('.domain-container');
+                subDomains.forEach((subDomain, subIndex) => {
+                    // 子域索引从2开始（2-4）
+                    const currentSubIndex = subIndex + 2;
+                    // 确保主域索引始终在1-8之间
+                    const safeMajorIndex = Math.min(Math.max(currentMajorIndex, 1), 8);
+                    // 确保子域索引始终从2开始
+                    const safeSubIndex = Math.max(currentSubIndex, 2);
+                    // 生成子域编号：主域索引.子域索引（如1.2, 1.3, 1.4, 5.2等）
+                    const subDomainNumber = `${safeMajorIndex}.${safeSubIndex}`;
+                    // 获取子域名标题并去除倒三角符号
+                    const subDomainHeader = subDomain.querySelector('.domain-header');
+                    let subDomainTitle = subDomainHeader.textContent.trim();
+                    // 去除倒三角符号（可能是特殊字符或HTML实体）
+                    subDomainTitle = subDomainTitle.replace(/▼|▶|\u25BC|\u25B6/g, '').trim();
+                    let subDomainHasContent = false;
+                    let clausesContent = '';
+                    
+                    const clauses = subDomain.querySelectorAll('.clause-item');
+                    // 初始化导出条款的连续编号计数器
+                    let exportedClauseCounter = 0;
+                    // 初始化全局图片索引
+                    let globalImageIndex = 0;
+                    
+                    // 使用原始条款编号而不是导出计数
+                    clauses.forEach((clause, clauseIndex) => {
+                        const originalClauseNumber = clause.querySelector('.clause-number').textContent.trim();
+                        const clauseText = clause.querySelector('.clause-text').textContent.trim();
+                        const clauseResult = clause.querySelector('.clause-result');
+                        
+                        // 检查是否有结果和图片
+                        if (clauseResult && clauseResult.style.display !== 'none') {
+                            // 检查该条款是否有图片
+                            const previewContainer = clause.querySelector('.preview-container');
+                            let hasImages = false;
+                            if (previewContainer) {
+                                const images = previewContainer.querySelectorAll('.item-preview-image');
+                                hasImages = images.length > 0;
+                            }
+                            
+                            // 只有当既有结果又有图片时才导出该条款
+                            if (hasImages) {
+                                // 递增导出条款计数器（连续编号）
+                                exportedClauseCounter++;
+                                // 将数字转换为带圈数字（①②③…）
+                                const circledNumbers = ['', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+                                // 使用导出计数器作为条款编号，确保连续
+                                const clauseNum = exportedClauseCounter;
+                                const newClauseNumber = clauseNum <= 10 ? circledNumbers[clauseNum] : `${clauseNum}`; // 超过10个条款使用普通数字
+                                const resultText = clauseResult.innerHTML;
+                                // 获取自定义前缀
+                                const customPrefix = document.getElementById('customPrefix').value.trim();
+                                clausesContent += `
+                                    <div class="clause-item">
+                                        <p><strong><span class="clause-number">${newClauseNumber}</span>${customPrefix}${clauseText}</strong></p>
+                                        <p>${resultText}</p>
+                                `;
+                                
+                                // 导出图片
+                                if (previewContainer) {
+                                    const images = previewContainer.querySelectorAll('.item-preview-image');
+                                    if (images.length > 0) {
+                                        images.forEach((img, imgIndex) => {
+                                            // 获取图片的src属性，确保能正确导出
+                                            const imgSrc = img.src;
+                                            
+                                            // 生成图片编号：图+子域编号.第一个导出条款编号-全局图片索引
+                                            // 子域编号：如1.2, 1.3等
+                                            // 条款编号：固定为1（子域下所有图片使用统一条款编号）
+                                            // 图片索引：全局递增（跨条款）
+                                            globalImageIndex++;
+                                            const figureNumber = `${subDomainNumber}.1-${globalImageIndex}`;
+                                            
+                                        // 使用固定像素宽度和Word特定样式确保图片缩小，并添加黑色边框
+                                            clausesContent += `<div style="text-align:center; margin: 6pt 0;">
+                                                <img src="${imgSrc}" 
+                                                width="550" 
+                                                height="auto" 
+                                                style="width:550px; height:auto; max-width:550px; mso-width-percent:55; border: 1px solid #000000; mso-border-alt: solid black 1.0pt;" 
+                                                /> 
+                                                <p style="text-align:center; margin:2pt 0; line-height: 10.5pt; mso-line-height-rule: exactly;">
+                                                    <span style="font-family:'宋体',SimSun; font-size:12pt;">图</span><span style="font-family:'Times New Roman'; font-size:12pt;">${figureNumber}</span>
+                                                </p>
+                                            </div>`;
+                                        });
+                                    }
+                                }
+                                
+                                clausesContent += `
+                                    </div>
+                                `;
+                                subDomainHasContent = true;
+                                majorDomainHasContent = true;
+                            }
+                        }
+                    });
+                    
+                    // 只有当子域下有内容时才导出子域标题和内容
+                    if (subDomainHasContent) {
+                        // 为子域标题添加编号前缀
+                        const numberedSubDomainTitle = `${subDomainNumber} ${subDomainTitle}`;
+                        docContent += `<h3>${numberedSubDomainTitle}</h3>${clausesContent}`;
+                    }
+                });
+            });
+            
+            docContent += `
+                </body>
+                </html>
+            `;
+            
+            // 创建Blob并下载
+            const blob = new Blob(['﻿', docContent], { type: 'application/msword;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'DCMM评估条款描述.doc';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+        
+        // 默认展开第一个大域和其下的第一个子域
+        setTimeout(() => {
+            const firstMajorDomain = clauseContainer.querySelector('.major-domain-container');
+            if (firstMajorDomain) {
+                const firstMajorDomainContent = firstMajorDomain.querySelector('.major-domain-content');
+                const firstMajorDomainToggle = firstMajorDomain.querySelector('.major-domain-toggle');
+                firstMajorDomainContent.classList.add('expanded');
+                firstMajorDomainToggle.classList.add('expanded');
+                
+                // 展开第一个大域下的第一个子域
+                const firstDomain = firstMajorDomainContent.querySelector('.domain-container');
+                if (firstDomain) {
+                    const firstDomainContent = firstDomain.querySelector('.domain-content');
+                    const firstDomainToggle = firstDomain.querySelector('.domain-toggle');
+                    firstDomainContent.classList.add('expanded');
+                    firstDomainToggle.classList.add('expanded');
+                }
+            }
+        }, 100);
+    </script>
+</body>
+</html>
