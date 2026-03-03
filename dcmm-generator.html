@@ -1039,7 +1039,7 @@
                                 'Authorization': `Bearer ${apiKey}`
                             },
                             body: JSON.stringify({
-                                model: 'doubao-seed-2.0-pro',
+                                model: 'doubao-seed-2-0-pro-260215',
                                 messages: [
                                     {
                                         role: 'system',
@@ -1050,8 +1050,7 @@
                                         content: `条款内容：${customPrefix}${clauseText}\n请生成符合DCMM评估标准的条款描述，不少于300字。`
                                     }
                                 ],
-                                max_tokens: 500,
-                                temperature: 0.7
+                                max_tokens: 500
                             })
                         });
                         
